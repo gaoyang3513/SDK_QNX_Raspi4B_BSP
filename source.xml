@@ -1,0 +1,19 @@
+<!-- Unless otherwise specified, values/attributes are free-form strings -->
+    <!-- type is currently either BSP or SourceOnly -->
+<sourcePackage type="BSP" id="hw.raspberrypi-bcm2711-rpi4">
+    <title>Raspberry Pi BCM2711 R-PI4</title>
+    <release>BSP_raspberrypi-bcm2711-rpi4_br-hw-rel_be-800-BN198</release>
+    <maturity>Development Build</maturity>
+    <license>QDL and Apache II</license>
+    <startup>startup-bcm2711-rpi4</startup>
+    <requires>package: com.qnx.${baselineId}.target.pci.hw.bcm2711</requires>
+    <description> This package contains the source and build files for targeting QNX/Muon on the Raspberry Pi 4 board.</description>
+    <vendor>BlackBerry Limited</vendor>
+    <qnxTargetVersion>SDP8.0</qnxTargetVersion>
+    <qnxTargetCPU variant="aarch64le">AARCH64</qnxTargetCPU>
+    <property key="f.swtype" value="I"/>
+    <!-- type is currently only import, will be extended in the future. -->
+    <bsp type="import">
+        <import id="raspberrypi-bcm2711-rpi4">images/rpi4.build</import>
+    </bsp>
+</sourcePackage>
