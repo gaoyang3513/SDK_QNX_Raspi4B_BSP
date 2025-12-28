@@ -7,7 +7,7 @@
 *.pinfo
 
 # Directories to ignore
-/.vscode/
+.vscode/
 /install/
 /images/
 
