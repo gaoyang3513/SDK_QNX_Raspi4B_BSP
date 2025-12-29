@@ -32,7 +32,7 @@ clean:
 
 install: $(if $(wildcard prebuilt/*),prebuilt)
 	$(MAKE) -Csrc hinstall
-	$(MAKE) -Csrc
+	$(MAKE) -Csrc install
 
 
 #
