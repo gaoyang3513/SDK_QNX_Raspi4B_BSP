@@ -7,10 +7,6 @@
 #include <stdbool.h>
 #include "aht10_util.h"
 
-int fd_i2c1 = -1;
-
-extern bool aht1x_getEvent(sensors_event_t *humidity, sensors_event_t *temp);
-
 int main() {
 	int ret = 0, fd_i2c_s = 0;
 	i2c_driver_info_t info = {0};
@@ -22,39 +18,25 @@ int main() {
 		return -1;
 	}
 
-	ret = ioctl(fd_i2c_s, DCMD_I2C_DRIVER_INFO, &info);
+	ret = aht1x_begin(fd_i2c_s, AHTX0_I2CADDR_DEFAULT);
 	if (ret < 0) {
-		printf("ErrNo(%d) %s, failed to read from I2C device\n", errno, strerror(errno));
+		printf("[%12s|%4u] ErrNo(%d), failed to init AHT1x\n", __FILE_NAME__, __LINE__, ret);
 		close(fd_i2c_s);
-		
 		return -1;
 	}
-
-	printf("I2C Driver Info:\n");
-	printf("  Speed    : %#X\n", info.speed_mode); /* supported speeds: I2C_SPEED_* */
-	printf("  Mode-Addr: %#X\n", info.addr_mode);  /* supported address fmts: I2C_ADDRFMT_* */
-	printf("  Verbosity: %#X\n", info.verbosity);  /* Driver verbosity level */
-
-
-	Adafruit_AHTX0 aht;
-
-	Serial.begin(115200);
-	Serial.println("Adafruit AHT10/AHT20 demo!");
-
-	if (! aht.begin()) {
-		Serial.println("Could not find AHT? Check wiring");
-		while (1) delay(10);
-	}
 	
-	Serial.println("AHT10 or AHT20 found");
-
 	while(1) {
-		sensors_event_t humidity, temp;
-		aht.getEvent(&humidity, &temp);// populate temp and humidity objects with fresh data
-		Serial.print("Temperature: "); Serial.print(temp.temperature); Serial.println(" degrees C");
-		Serial.print("Humidity: "); Serial.print(humidity.relative_humidity); Serial.println("% rH");
+		float humidity, temp;
+		ret = aht1x_getEvent(fd_i2c_s, AHTX0_I2CADDR_DEFAULT, &humidity, &temp);
+		if (ret < 0) {
+			printf("[%12s|%4u] ErrNo(%d), failed to read data from AHT1x\n", __FILE_NAME__, __LINE__, ret);
+			return ret;
+		}
 
-		delay(500);
+		printf("Temperature: %2.3f degrees C\n", temp);
+		printf("Humidity   : %2.3f %% rH\n", humidity);
+
+		usleep(500000); // wait 500ms before next read
 	}
 
 	close(fd_i2c_s);

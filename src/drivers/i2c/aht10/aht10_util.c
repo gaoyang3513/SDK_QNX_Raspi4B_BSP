@@ -1,3 +1,4 @@
+#include <malloc.h>
 #include <stdio.h>
 #include <fcntl.h>
 #include <hw/i2c.h>
@@ -7,9 +8,90 @@
 #include <stdbool.h>
 #include "aht10_util.h"
 
-float _humidity = 0, _temperature = 0;
+static int fd_i2c;
 
-extern int fd_i2c1;
+static int _i2c_read(uint8_t address, uint8_t *data, size_t length, uint8_t stop)
+{
+	int ret = 0;
+	char *data_recv = NULL;
+	unsigned int recv_lent = sizeof(i2c_recv_t) + length;
+	i2c_recv_t *data_msg = NULL, *data_buf = NULL;
+
+	data_recv = malloc(recv_lent);
+	if (data_recv == NULL) {
+		printf("Failed to allocate memory for I2C read\n");
+		return -1;
+	}
+	
+	memset(data_recv, 0, recv_lent);
+	
+	data_msg = (i2c_recv_t *)data_recv;
+	data_buf = (char *)data_recv + sizeof(*data_msg);
+	
+	data_msg->slave.addr = address;
+	data_msg->slave.fmt  = I2C_ADDRFMT_7BIT;
+	data_msg->len        = length;
+	data_msg->stop       = stop;
+
+	ret = devctl(fd_i2c, DCMD_I2C_RECV, data_msg, recv_lent, NULL);
+	if (ret < 0) {
+		printf("[%s|%u] ErrNo(%d) %s, failed to read I2C data\n", __FILE__, __LINE__, errno, strerror(errno));
+		return ret;
+	}
+
+	return ret;
+}
+
+static int _i2c_write(uint8_t address, const uint8_t *data, size_t length, uint8_t stop) 
+{
+	int ret = 0;
+	char *data_send = NULL;
+	i2c_send_t *data_msg = NULL;
+	unsigned int send_lent = sizeof(i2c_send_t) + length;
+
+	data_send = malloc (send_lent);
+	if (data_send == NULL) {
+		printf("Failed to allocate memory for I2C write\n");
+		return -ENOMEM;
+	}
+
+	memset(data_send, 0, send_lent);
+
+	data_msg = (i2c_send_t *)data_send;
+	data_msg->slave.addr = address;
+	data_msg->slave.fmt  = I2C_ADDRFMT_7BIT;
+	data_msg->len        = length;
+	data_msg->stop       = stop;
+	
+	memcpy ((char *)data_send + sizeof(*data_msg), data, length);
+	
+	ret = devctl(fd_i2c, DCMD_I2C_SEND, data_send, send_lent, NULL);
+	if (ret < 0) {
+		printf("[%12s|%4u] ErrNo(%d) %s, failed to write I2C data\n", __FILE_NAME__, __LINE__, errno, strerror(errno));
+		return ret;
+	}
+
+	return ret;	
+}
+
+/**
+ * @brief  Gets the status (first byte) from AHT10/AHT20
+ *
+ * @returns 8 bits of status data, or 0xFF if failed
+ */
+static int aht1x_getStatus(uint8_t address)
+{
+	int ret;
+	uint8_t recv_data[1] = {0};
+
+	ret = _i2c_read(address, recv_data, 1, 1);
+	if (ret < 0) {
+		printf("[%s|%4u] ErrNo(%d) %s, failed to read date from I2C Address[%#X]\n", __FILE_NAME__, __LINE__, ret, address);
+		return ret;
+	}
+
+	return recv_data[0];
+}
 
 /*!
  *    @brief  Sets up the hardware and initializes I2C
@@ -21,63 +103,47 @@ extern int fd_i2c1;
  *            The I2C address used to communicate with the sensor
  *    @return True if initialization was successful, otherwise false.
  */
-bool aht1x_begin(TwoWire *wire, int32_t sensor_id, uint8_t i2c_address)
+int aht1x_begin(int i2c_dev, uint8_t i2c_address)
 {
-	delay(20); // 20 ms to power up
+	int ret = 0; 
+	uint8_t cmd[3] = {0};
 
-	if (i2c_dev) {
-		delete i2c_dev; // remove old interface
+	if (i2c_dev < 0) {
+		printf("Error, invalid I2C device\n");
+		return -EINVAL;
 	}
-
-	i2c_dev = new Adafruit_I2CDevice(i2c_address, wire);
-
-	if (!i2c_dev->begin()) {
-		return false;
-	}
-
-	uint8_t cmd[3];
+	fd_i2c = i2c_dev;
 
 	cmd[0] = AHTX0_CMD_SOFTRESET;
-	if (!i2c_dev->write(cmd, 1)) {
-		return false;
+	ret = _i2c_write(i2c_address, cmd, 1, 0);
+	if (ret < 0) {
+		printf("[%12s|%4u] ErrNo(%d), failed to write SOFTRESET command\n", __FILE_NAME__, __LINE__, ret);
+		return ret;
 	}
-	delay(20);
 
-	while (getStatus() & AHTX0_STATUS_BUSY) {
-		delay(10);
+	usleep(20000); // 20ms delay
+ 
+	while (aht1x_getStatus(i2c_address) & AHTX0_STATUS_BUSY) {
+		usleep(10000);
 	}
 
 	cmd[0] = AHTX0_CMD_CALIBRATE;
 	cmd[1] = 0x08;
 	cmd[2] = 0x00;
-	i2c_dev->write(cmd, 3); // may not 'succeed' on newer AHT20s
-
-	while (getStatus() & AHTX0_STATUS_BUSY) {
-		delay(10);
-	}
-	if (!(getStatus() & AHTX0_STATUS_CALIBRATED)) {
+	ret = _i2c_write(i2c_address, cmd, 3, 1);
+	if (ret < 0) {
+		printf("ErrNo(%d) %s, failed to write CALIBRATE command\n", errno, strerror(errno));
 		return false;
 	}
 
-	delete humidity_sensor;
-	 
-	
-	temp_sensor = new Adafruit_AHTX0_Temp(this);
-	return true;
-}
-
-/**
- * @brief  Gets the status (first byte) from AHT10/AHT20
- *
- * @returns 8 bits of status data, or 0xFF if failed
- */
-uint8_t aht1x_getStatus(void)
-{
-	uint8_t ret;
-	if (!i2c_dev->read(&ret, 1)) {
-		return 0xFF;
+	while (aht1x_getStatus(i2c_address) & AHTX0_STATUS_BUSY) {
+		delay(10);
 	}
-	return ret;
+	if (!(aht1x_getStatus(i2c_address) & AHTX0_STATUS_CALIBRATED)) {
+		return false;
+	}
+
+	return true;
 }
 
 /**************************************************************************/
@@ -89,42 +155,42 @@ uint8_t aht1x_getStatus(void)
     @returns true if the event data was read successfully
 */
 /**************************************************************************/
-bool aht1x_getEvent(sensors_event_t *humidity, sensors_event_t *temp)
+int aht1x_getEvent(int i2c_dev, uint8_t i2c_address, float *_humidity, float *_temperature)
 {
-	uint32_t t = millis();
+	int ret = 0;
 
 	// read the data and store it!
 	uint8_t cmd[3] = {AHTX0_CMD_TRIGGER, 0x33, 0};
-	if (!i2c_dev->write(cmd, 3)) {
-		return false;
+	ret = _i2c_write(i2c_address, cmd, 3, 1);
+	if (ret < 0) {
+		printf("[%s|%4u] ErrNo(%d) %s, failed to write TRIGGER command\n", __FILE_NAME__, __LINE__, ret);
+		return ret;
 	}
 
-	while (getStatus() & AHTX0_STATUS_BUSY) {
+	while (aht1x_getStatus(i2c_address) & AHTX0_STATUS_BUSY) {
 		delay(10);
 	}
 
 	uint8_t data[6];
-	if (!i2c_dev->read(data, 6)) {
-		return false;
+	ret = _i2c_read(i2c_address, data, 6, 1);
+	if (ret < 0) {
+		printf("[%s|%4u] ErrNo(%d) %s, failed to read date from I2C Address[%#X]\n", __FILE_NAME__, __LINE__, ret, i2c_address);
+		return ret;
 	}
+	
 	uint32_t h = data[1];
 	h <<= 8;
 	h |= data[2];
 	h <<= 4;
 	h |= data[3] >> 4;
-	_humidity = ((float)h * 100) / 0x100000;
+	*_humidity = ((float)h * 100) / 0x100000;
 
 	uint32_t tdata = data[3] & 0x0F;
 	tdata <<= 8;
 	tdata |= data[4];
 	tdata <<= 8;
 	tdata |= data[5];
-	_temperature = ((float)tdata * 200 / 0x100000) - 50;
+	*_temperature = ((float)tdata * 200 / 0x100000) - 50;
 
-	// use helpers to fill in the events
-	if (temp)
-		fillTempEvent(temp, t);
-	if (humidity)
-		fillHumidityEvent(humidity, t);
 	return true;
 }

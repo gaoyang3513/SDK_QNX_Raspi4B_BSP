@@ -9,6 +9,7 @@
 #define AHTX0_STATUS_BUSY         0x80 ///< Status bit for busy
 #define AHTX0_STATUS_CALIBRATED   0x08 ///< Status bit for calibrated
 
-bool aht1x_getEvent(sensors_event_t *humidity, sensors_event_t *temp);
+int aht1x_begin(int i2c_dev, uint8_t i2c_address);
+int aht1x_getEvent(int i2c_dev, uint8_t i2c_address, float *_humidity, float *_temperature);
 
 #endif
