@@ -22,12 +22,12 @@ static int _i2c_read(uint8_t address, uint8_t *data, size_t length, uint8_t stop
 		printf("Failed to allocate memory for I2C read\n");
 		return -1;
 	}
-	
+
 	memset(data_recv, 0, recv_lent);
-	
+
 	data_msg = (i2c_recv_t *)data_recv;
 	data_buf = (char *)data_recv + sizeof(*data_msg);
-	
+
 	data_msg->slave.addr = address;
 	data_msg->slave.fmt  = I2C_ADDRFMT_7BIT;
 	data_msg->len        = length;
@@ -39,10 +39,12 @@ static int _i2c_read(uint8_t address, uint8_t *data, size_t length, uint8_t stop
 		return ret;
 	}
 
+	memcpy(data, data_buf, length);
+
 	return ret;
 }
 
-static int _i2c_write(uint8_t address, const uint8_t *data, size_t length, uint8_t stop) 
+static int _i2c_write(uint8_t address, const uint8_t *data, size_t length, uint8_t stop)
 {
 	int ret = 0;
 	char *data_send = NULL;
@@ -62,16 +64,16 @@ static int _i2c_write(uint8_t address, const uint8_t *data, size_t length, uint8
 	data_msg->slave.fmt  = I2C_ADDRFMT_7BIT;
 	data_msg->len        = length;
 	data_msg->stop       = stop;
-	
+
 	memcpy ((char *)data_send + sizeof(*data_msg), data, length);
-	
+
 	ret = devctl(fd_i2c, DCMD_I2C_SEND, data_send, send_lent, NULL);
 	if (ret < 0) {
 		printf("[%12s|%4u] ErrNo(%d) %s, failed to write I2C data\n", __FILE_NAME__, __LINE__, errno, strerror(errno));
 		return ret;
 	}
 
-	return ret;	
+	return ret;
 }
 
 /**
@@ -105,7 +107,7 @@ static int aht1x_getStatus(uint8_t address)
  */
 int aht1x_begin(int i2c_dev, uint8_t i2c_address)
 {
-	int ret = 0; 
+	int ret = 0;
 	uint8_t cmd[3] = {0};
 
 	if (i2c_dev < 0) {
@@ -122,7 +124,7 @@ int aht1x_begin(int i2c_dev, uint8_t i2c_address)
 	}
 
 	usleep(20000); // 20ms delay
- 
+
 	while (aht1x_getStatus(i2c_address) & AHTX0_STATUS_BUSY) {
 		usleep(10000);
 	}
@@ -158,38 +160,36 @@ int aht1x_begin(int i2c_dev, uint8_t i2c_address)
 int aht1x_getEvent(int i2c_dev, uint8_t i2c_address, float *_humidity, float *_temperature)
 {
 	int ret = 0;
+	uint8_t retry = 0;
+	uint8_t data[6] = {0};
+	uint8_t cmd[3] = {AHTX0_CMD_TRIGGER, 0x33, 0};
 
 	// read the data and store it!
-	uint8_t cmd[3] = {AHTX0_CMD_TRIGGER, 0x33, 0};
-	ret = _i2c_write(i2c_address, cmd, 3, 1);
+	ret = _i2c_write(i2c_address, cmd, sizeof(cmd), 1);
 	if (ret < 0) {
 		printf("[%s|%4u] ErrNo(%d) %s, failed to write TRIGGER command\n", __FILE_NAME__, __LINE__, ret);
 		return ret;
 	}
 
-	while (aht1x_getStatus(i2c_address) & AHTX0_STATUS_BUSY) {
-		delay(10);
-	}
+	do {
+		memset(data, 0, sizeof(data));
 
-	uint8_t data[6];
-	ret = _i2c_read(i2c_address, data, 6, 1);
-	if (ret < 0) {
-		printf("[%s|%4u] ErrNo(%d) %s, failed to read date from I2C Address[%#X]\n", __FILE_NAME__, __LINE__, ret, i2c_address);
-		return ret;
-	}
-	
-	uint32_t h = data[1];
-	h <<= 8;
-	h |= data[2];
-	h <<= 4;
-	h |= data[3] >> 4;
+		ret = _i2c_read(i2c_address, data, sizeof(data), 1);
+		if (ret < 0) {
+			printf("[%s|%4u] ErrNo(%d) %s, failed to read date from I2C Address[%#X]\n", __FILE_NAME__, __LINE__, ret, i2c_address);
+			return ret;
+		}
+
+		if (retry)
+			usleep(200000);
+	} while ((data[0] & AHTX0_STATUS_BUSY) && (retry++ < 10));
+
+//	printf("Raw data: %02X %02X %02X %02X %02X %02X\n", data[0], data[1], data[2], data[3], data[4], data[5]);
+
+	uint32_t h = (data[1] << 8 | data[2]) << 4 | data[3] >> 4;
 	*_humidity = ((float)h * 100) / 0x100000;
 
-	uint32_t tdata = data[3] & 0x0F;
-	tdata <<= 8;
-	tdata |= data[4];
-	tdata <<= 8;
-	tdata |= data[5];
+	uint32_t tdata = ((data[3] & 0x0F)) << 16 | (data[4] << 8) | data[5];
 	*_temperature = ((float)tdata * 200 / 0x100000) - 50;
 
 	return true;

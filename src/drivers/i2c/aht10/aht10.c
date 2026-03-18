@@ -9,12 +9,12 @@
 
 int main() {
 	int ret = 0, fd_i2c_s = 0;
-	i2c_driver_info_t info = {0};
+	float humidity, temp;
 
 	fd_i2c_s = open ("/dev/i2c1", O_RDWR);
 	if (fd_i2c_s < 0) {
 		printf("ErrNo(%d) %s, failed to open I2C device\n", errno, strerror(errno));
-	
+
 		return -1;
 	}
 
@@ -24,19 +24,19 @@ int main() {
 		close(fd_i2c_s);
 		return -1;
 	}
-	
+
 	while(1) {
-		float humidity, temp;
+		humidity =0.0f; temp = 0.0f;
 		ret = aht1x_getEvent(fd_i2c_s, AHTX0_I2CADDR_DEFAULT, &humidity, &temp);
 		if (ret < 0) {
 			printf("[%12s|%4u] ErrNo(%d), failed to read data from AHT1x\n", __FILE_NAME__, __LINE__, ret);
 			return ret;
 		}
 
-		printf("Temperature: %2.3f degrees C\n", temp);
-		printf("Humidity   : %2.3f %% rH\n", humidity);
+		printf("Temperature: %2.3f ℃\n", temp);
+		printf("Humidity   : %2.3f %%rH\n", humidity);
 
-		usleep(500000); // wait 500ms before next read
+		sleep(1); // wait 500ms before next read
 	}
 
 	close(fd_i2c_s);
