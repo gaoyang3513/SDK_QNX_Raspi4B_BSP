@@ -4,30 +4,42 @@
 #include <ioctl.h>
 #include <errno.h>
 #include <string.h>
+#include <stdbool.h>
+#include "aht10_util.h"
 
 int main() {
-    int ret = 0, fd_i2c_s = 0;
-    i2c_driver_info_t info = {0};
+	int ret = 0, fd_i2c_s = 0;
+	float humidity, temp;
 
-    fd_i2c_s = open ("/dev/i2c1", O_RDWR);
-    if (fd_i2c_s < 0) {
-        printf("ErrNo(%d) %s, failed to open I2C device\n", errno, strerror(errno));
-        return -1;
-    }
+	fd_i2c_s = open ("/dev/i2c1", O_RDWR);
+	if (fd_i2c_s < 0) {
+		printf("ErrNo(%d) %s, failed to open I2C device\n", errno, strerror(errno));
 
-    ret = ioctl(fd_i2c_s, DCMD_I2C_DRIVER_INFO, &info);
-    if (ret < 0) {
-        printf("ErrNo(%d) %s, failed to read from I2C device\n", errno, strerror(errno));
-        close(fd_i2c_s);
-        return -1;
-    }
+		return -1;
+	}
 
-    printf("I2C Driver Info:\n");
-    printf("  Speed    : %#X\n", info.speed_mode); /* supported speeds: I2C_SPEED_* */
-    printf("  Mode-Addr: %#X\n", info.addr_mode);  /* supported address fmts: I2C_ADDRFMT_* */
-    printf("  Verbosity: %#X\n", info.verbosity);  /* Driver verbosity level */
+	ret = aht1x_begin(fd_i2c_s, AHTX0_I2CADDR_DEFAULT);
+	if (ret < 0) {
+		printf("[%12s|%4u] ErrNo(%d), failed to init AHT1x\n", __FILE_NAME__, __LINE__, ret);
+		close(fd_i2c_s);
+		return -1;
+	}
 
-    close(fd_i2c_s);
+	while(1) {
+		humidity =0.0f; temp = 0.0f;
+		ret = aht1x_getEvent(fd_i2c_s, AHTX0_I2CADDR_DEFAULT, &humidity, &temp);
+		if (ret < 0) {
+			printf("[%12s|%4u] ErrNo(%d), failed to read data from AHT1x\n", __FILE_NAME__, __LINE__, ret);
+			return ret;
+		}
 
-    return 0;
+		printf("Temperature: %2.3f ℃\n", temp);
+		printf("Humidity   : %2.3f %%rH\n", humidity);
+
+		sleep(1); // wait 500ms before next read
+	}
+
+	close(fd_i2c_s);
+
+	return 0;
 }
