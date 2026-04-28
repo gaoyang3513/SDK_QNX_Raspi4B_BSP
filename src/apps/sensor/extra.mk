@@ -1,0 +1,2 @@
+EXTRA_INCVPATH    = $(PROJECT_ROOT)/include
+EXTRA_SRCVPATH   += $(PROJECT_ROOT)/utils
