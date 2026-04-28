@@ -13,9 +13,9 @@ static int fd_i2c;
 static int _i2c_read(uint8_t address, uint8_t *data, size_t length, uint8_t stop)
 {
 	int ret = 0;
-	char *data_recv = NULL;
+	i2c_recv_t *data_msg = NULL;
+	char *data_recv = NULL, *data_buf = NULL;
 	unsigned int recv_lent = sizeof(i2c_recv_t) + length;
-	i2c_recv_t *data_msg = NULL, *data_buf = NULL;
 
 	data_recv = malloc(recv_lent);
 	if (data_recv == NULL) {
@@ -88,7 +88,7 @@ static int aht1x_getStatus(uint8_t address)
 
 	ret = _i2c_read(address, recv_data, 1, 1);
 	if (ret < 0) {
-		printf("[%s|%4u] ErrNo(%d) %s, failed to read date from I2C Address[%#X]\n", __FILE_NAME__, __LINE__, ret, address);
+		printf("[%s|%4u] ErrNo(%d), failed to read date from I2C Address[%#X]\n", __FILE_NAME__, __LINE__, ret, address);
 		return ret;
 	}
 
@@ -167,7 +167,7 @@ int aht1x_getEvent(int i2c_dev, uint8_t i2c_address, float *_humidity, float *_t
 	// read the data and store it!
 	ret = _i2c_write(i2c_address, cmd, sizeof(cmd), 1);
 	if (ret < 0) {
-		printf("[%s|%4u] ErrNo(%d) %s, failed to write TRIGGER command\n", __FILE_NAME__, __LINE__, ret);
+		printf("[%s|%4u] ErrNo(%d), failed to write TRIGGER command\n", __FILE_NAME__, __LINE__, ret);
 		return ret;
 	}
 
@@ -176,7 +176,7 @@ int aht1x_getEvent(int i2c_dev, uint8_t i2c_address, float *_humidity, float *_t
 
 		ret = _i2c_read(i2c_address, data, sizeof(data), 1);
 		if (ret < 0) {
-			printf("[%s|%4u] ErrNo(%d) %s, failed to read date from I2C Address[%#X]\n", __FILE_NAME__, __LINE__, ret, i2c_address);
+			printf("[%s|%4u] ErrNo(%d), failed to read date from I2C Address[%#X]\n", __FILE_NAME__, __LINE__, ret, i2c_address);
 			return ret;
 		}
 
