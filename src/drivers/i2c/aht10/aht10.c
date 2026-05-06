@@ -1,63 +1,119 @@
+#include <errno.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <stddef.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
 #include <sys/iofunc.h>
 #include <sys/dispatch.h>
-#include <string.h>
 
-static resmgr_connect_funcs_t   connect_func;
-static resmgr_io_funcs_t        io_func;
 static iofunc_attr_t            attr;
+static resmgr_io_funcs_t        io_funcs;
+static resmgr_connect_funcs_t   connect_funcs;
 
-int main (int argc, char **argv)
+static char                     *buffer = "Hello world\n";
+
+int io_read (resmgr_context_t *ctp, io_read_t *msg, RESMGR_OCB_T *ocb)
 {
-    thread_pool_attr_t    pool_attr;
-    thread_pool_t         *tpp;
-    dispatch_t            *dpp;
-    resmgr_attr_t         resmgr_attr;
-    int                   id;
+    size_t      nleft;
+    size_t      nbytes;
+    int         nparts;
+    int         status;
 
-    if ((dpp = dispatch_create ()) == NULL) {
-        fprintf (stderr,"%s:  Unable to allocate dispatch context.\n", argv [0]);
-        return (EXIT_FAILURE);
+    if ((status = iofunc_read_verify (ctp, msg, ocb, NULL)) != EOK)
+        return (status);
+
+    if ((msg->i.xtype & _IO_XTYPE_MASK) != _IO_XTYPE_NONE)
+        return (ENOSYS);
+
+    /*
+     *  On all reads (first and subsequent), calculate how many bytes we can
+     *  return to the client, based upon the number of bytes available (nleft)
+     *  and the client's buffer size
+     */
+    nleft = ocb->attr->nbytes - ocb->offset;
+    nbytes = min (_IO_READ_GET_NBYTES(msg), nleft);
+
+    if (nbytes > 0) {
+        /* set up the return data IOV */
+        SETIOV (ctp->iov, buffer + ocb->offset, nbytes);
+
+        /* set up the number of bytes (returned by client's read()) */
+        _IO_SET_READ_NBYTES (ctp, nbytes);
+
+        /*
+         * advance the offset by the number of bytes returned to the client
+         */
+        ocb->offset += nbytes;
+
+        nparts = 1;
+    } else {
+        /*
+         * they've asked for zero bytes or they've already previously
+         * read everything
+         */
+        _IO_SET_READ_NBYTES (ctp, 0);
+
+        nparts = 0;
     }
 
-    memset (&pool_attr, 0, sizeof (pool_attr));
-    pool_attr.handle = dpp;
-    pool_attr.context_alloc = (void *) dispatch_context_alloc;
-    pool_attr.block_func    = (void *) dispatch_block;
-    pool_attr.handler_func  = (void *) dispatch_handler;
-    pool_attr.context_free  = (void *) dispatch_context_free;
+    /* mark the access time as invalid (we just accessed it) */
+    if (msg->i.nbytes > 0)
+        ocb->attr->flags |= IOFUNC_ATTR_ATIME;
 
-    // 1) set up the number of threads that you want
-    pool_attr.lo_water  = 2;
-    pool_attr.hi_water  = 4;
-    pool_attr.increment = 1;
-    pool_attr.maximum   = 50;
+    return (_RESMGR_NPARTS (nparts));
+}
 
-    if ((tpp = thread_pool_create (&pool_attr, POOL_FLAG_EXIT_SELF)) == NULL) {
-        fprintf (stderr, "%s:  Unable to initialize thread pool.\n", argv [0]);
-        return (EXIT_FAILURE);
+
+int main(int argc, char **argv)
+{
+    /* declare variables we'll be using */
+    resmgr_attr_t        resmgr_attr;
+    dispatch_t           *dpp;
+    dispatch_context_t   *ctp;
+    int                  id;
+
+    /* initialize dispatch interface */
+    if((dpp = dispatch_create()) == NULL) {
+        fprintf(stderr, "%s: Unable to allocate dispatch handle.\n", argv[0]);
+        return EXIT_FAILURE;
     }
 
-    iofunc_func_init (_RESMGR_CONNECT_NFUNCS, &connect_func, _RESMGR_IO_NFUNCS, &io_func);
-    iofunc_attr_init (&attr, S_IFNAM | 0777, 0, 0);
-
-    // 2) override functions in "connect_func" and "io_func" as required here
-    memset (&resmgr_attr, 0, sizeof (resmgr_attr));
-    resmgr_attr.nparts_max   = 1;
+    /* initialize resource manager attributes */
+    memset(&resmgr_attr, 0, sizeof resmgr_attr);
+    resmgr_attr.nparts_max = 1;
     resmgr_attr.msg_max_size = 2048;
 
-    // 3) replace "/dev/whatever" with your device name
-    if ((id = resmgr_attach (dpp, &resmgr_attr, "/dev/whatever", _FTYPE_ANY, 0, &connect_func, &io_func, &attr)) == -1) {
-        fprintf (stderr, "%s:  Unable to attach name.\n", argv [0]);
-        return (EXIT_FAILURE);
+    /* initialize functions for handling messages, including our read handlers */
+    iofunc_func_init(_RESMGR_CONNECT_NFUNCS, &connect_funcs,
+                     _RESMGR_IO_NFUNCS, &io_funcs);
+    io_funcs.read   = io_read;
+    io_funcs.read64 = io_read;
+
+    /* initialize attribute structure used by the device */
+    iofunc_attr_init(&attr, S_IFNAM | 0666, 0, 0);
+    attr.nbytes = strlen(buffer)+1;
+
+    /* attach our device name */
+    if((id = resmgr_attach(dpp, &resmgr_attr, "/dev/sample", _FTYPE_ANY, 0,
+                           &connect_funcs, &io_funcs, &attr)) == -1) {
+        fprintf(stderr, "%s: Unable to attach name.\n", argv[0]);
+        return EXIT_FAILURE;
     }
 
-    // Never returns
-    thread_pool_start (tpp);
+    /* allocate a context structure */
+    ctp = dispatch_context_alloc(dpp);
 
-    return (EXIT_SUCCESS);
+    /* start the resource manager message loop */
+    while(1) {
+        if((ctp = dispatch_block(ctp)) == NULL) {
+            fprintf(stderr, "block error\n");
+            return EXIT_FAILURE;
+        }
+        dispatch_handler(ctp);
+    }
+
+    return EXIT_SUCCESS;
 }
 
 /*
