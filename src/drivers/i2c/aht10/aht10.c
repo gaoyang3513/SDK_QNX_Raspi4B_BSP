@@ -6,17 +6,26 @@
 #include <string.h>
 #include <sys/iofunc.h>
 #include <sys/dispatch.h>
+#include <fcntl.h>
+#include <ioctl.h>
+#include <stdbool.h>
+#include <hw/i2c.h>
+#include "aht10_util.h"
 
+static float humidity, temp;
 static iofunc_attr_t            attr;
 static resmgr_io_funcs_t        io_funcs;
 static resmgr_connect_funcs_t   connect_funcs;
 
-static char                     *buffer = "Hello world\n";
+static char                     buffer[255] = "Hello world\n";
+
+int get_event();
 
 int io_read (resmgr_context_t *ctp, io_read_t *msg, RESMGR_OCB_T *ocb)
 {
     size_t      nleft;
     size_t      nbytes;
+    size_t      offset = 0;
     int         nparts;
     int         status;
 
@@ -25,6 +34,11 @@ int io_read (resmgr_context_t *ctp, io_read_t *msg, RESMGR_OCB_T *ocb)
 
     if ((msg->i.xtype & _IO_XTYPE_MASK) != _IO_XTYPE_NONE)
         return (ENOSYS);
+
+    get_event();
+
+    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "Temperature: %2.3f ℃  \n", temp);
+    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "Humidity   : %2.3f %%rH\n", humidity);
 
     /*
      *  On all reads (first and subsequent), calculate how many bytes we can
@@ -92,7 +106,7 @@ int main(int argc, char **argv)
 
     /* initialize attribute structure used by the device */
     iofunc_attr_init(&attr, S_IFNAM | 0666, 0, 0);
-    attr.nbytes = strlen(buffer)+1;
+    attr.nbytes = sizeof(buffer);
 
     /* attach our device name */
     if((id = resmgr_attach(dpp, &resmgr_attr, "/dev/sample", _FTYPE_ANY, 0,
@@ -116,19 +130,9 @@ int main(int argc, char **argv)
     return EXIT_SUCCESS;
 }
 
-/*
-#include <stdio.h>
-#include <fcntl.h>
-#include <hw/i2c.h>
-#include <ioctl.h>
-#include <errno.h>
-#include <string.h>
-#include <stdbool.h>
-#include "aht10_util.h"
-
-int main() {
+int get_event()
+{
 	int ret = 0, fd_i2c_s = 0;
-	float humidity, temp;
 
 	fd_i2c_s = open ("/dev/i2c1", O_RDWR);
 	if (fd_i2c_s < 0) {
@@ -144,7 +148,7 @@ int main() {
 		return -1;
 	}
 
-	while(1) {
+//	while(1) {
 		humidity =0.0f; temp = 0.0f;
 		ret = aht1x_getEvent(fd_i2c_s, AHTX0_I2CADDR_DEFAULT, &humidity, &temp);
 		if (ret < 0) {
@@ -152,14 +156,13 @@ int main() {
 			return ret;
 		}
 
-		printf("Temperature: %2.3f ℃\n", temp);
-		printf("Humidity   : %2.3f %%rH\n", humidity);
-
-		sleep(1); // wait 500ms before next read
-	}
+//		printf("Temperature: %2.3f ℃\n", temp);
+//		printf("Humidity   : %2.3f %%rH\n", humidity);
+//
+//		sleep(1); // wait 500ms before next read
+//	}
 
 	close(fd_i2c_s);
 
 	return 0;
 }
-*/
