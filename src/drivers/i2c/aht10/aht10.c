@@ -19,7 +19,42 @@ static resmgr_connect_funcs_t   connect_funcs;
 
 static char                     buffer[255] = "Hello world\n";
 
-int get_event();
+int get_event()
+{
+	int ret = 0, fd_i2c_s = 0;
+
+	fd_i2c_s = open ("/dev/i2c1", O_RDWR);
+	if (fd_i2c_s < 0) {
+		printf("ErrNo(%d) %s, failed to open I2C device\n", errno, strerror(errno));
+
+		return -1;
+	}
+
+	ret = aht1x_begin(fd_i2c_s, AHTX0_I2CADDR_DEFAULT);
+	if (ret < 0) {
+		printf("[%12s|%4u] ErrNo(%d), failed to init AHT1x\n", __FILE_NAME__, __LINE__, ret);
+		close(fd_i2c_s);
+		return -1;
+	}
+
+//	while(1) {
+		humidity =0.0f; temp = 0.0f;
+		ret = aht1x_getEvent(fd_i2c_s, AHTX0_I2CADDR_DEFAULT, &humidity, &temp);
+		if (ret < 0) {
+			printf("[%12s|%4u] ErrNo(%d), failed to read data from AHT1x\n", __FILE_NAME__, __LINE__, ret);
+			return ret;
+		}
+
+//		printf("Temperature: %2.3f ℃\n", temp);
+//		printf("Humidity   : %2.3f %%rH\n", humidity);
+//
+//		sleep(1); // wait 500ms before next read
+//	}
+
+	close(fd_i2c_s);
+
+	return 0;
+}
 
 int io_read (resmgr_context_t *ctp, io_read_t *msg, RESMGR_OCB_T *ocb)
 {
@@ -109,7 +144,7 @@ int main(int argc, char **argv)
     attr.nbytes = sizeof(buffer);
 
     /* attach our device name */
-    if((id = resmgr_attach(dpp, &resmgr_attr, "/dev/sample", _FTYPE_ANY, 0,
+    if((id = resmgr_attach(dpp, &resmgr_attr, "/dev/th0", _FTYPE_ANY, 0,
                            &connect_funcs, &io_funcs, &attr)) == -1) {
         fprintf(stderr, "%s: Unable to attach name.\n", argv[0]);
         return EXIT_FAILURE;
@@ -128,41 +163,4 @@ int main(int argc, char **argv)
     }
 
     return EXIT_SUCCESS;
-}
-
-int get_event()
-{
-	int ret = 0, fd_i2c_s = 0;
-
-	fd_i2c_s = open ("/dev/i2c1", O_RDWR);
-	if (fd_i2c_s < 0) {
-		printf("ErrNo(%d) %s, failed to open I2C device\n", errno, strerror(errno));
-
-		return -1;
-	}
-
-	ret = aht1x_begin(fd_i2c_s, AHTX0_I2CADDR_DEFAULT);
-	if (ret < 0) {
-		printf("[%12s|%4u] ErrNo(%d), failed to init AHT1x\n", __FILE_NAME__, __LINE__, ret);
-		close(fd_i2c_s);
-		return -1;
-	}
-
-//	while(1) {
-		humidity =0.0f; temp = 0.0f;
-		ret = aht1x_getEvent(fd_i2c_s, AHTX0_I2CADDR_DEFAULT, &humidity, &temp);
-		if (ret < 0) {
-			printf("[%12s|%4u] ErrNo(%d), failed to read data from AHT1x\n", __FILE_NAME__, __LINE__, ret);
-			return ret;
-		}
-
-//		printf("Temperature: %2.3f ℃\n", temp);
-//		printf("Humidity   : %2.3f %%rH\n", humidity);
-//
-//		sleep(1); // wait 500ms before next read
-//	}
-
-	close(fd_i2c_s);
-
-	return 0;
 }
